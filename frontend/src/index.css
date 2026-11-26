@@ -1,0 +1,116 @@
+@import url("https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --radius: 0.5rem;
+  --background: oklch(97.5% 0.006 160);
+  --foreground: oklch(22% 0.03 165);
+  --card: oklch(100% 0 0);
+  --card-foreground: oklch(22% 0.03 165);
+  --popover: oklch(100% 0 0);
+  --primary: oklch(55% 0.14 155);
+  --primary-foreground: oklch(99% 0 0);
+  --primary-deep: oklch(36% 0.08 160);
+  --gold: oklch(80% 0.14 82);
+  --gold-foreground: oklch(25% 0.04 80);
+  --secondary: oklch(94% 0.025 155);
+  --secondary-foreground: oklch(30% 0.07 158);
+  --muted: oklch(95% 0.008 160);
+  --muted-foreground: oklch(50% 0.02 165);
+  --accent: oklch(93% 0.04 155);
+  --accent-foreground: oklch(30% 0.08 158);
+  --destructive: oklch(56% 0.21 27);
+  --destructive-foreground: oklch(99% 0 0);
+  --warning: oklch(72% 0.15 65);
+  --success: oklch(58% 0.14 150);
+  --info: oklch(56% 0.12 240);
+  --border: oklch(90% 0.012 160);
+  --input: oklch(88% 0.015 160);
+  --ring: oklch(55% 0.14 155);
+  --sidebar: oklch(30% 0.07 160);
+  --sidebar-foreground: oklch(96% 0.01 155);
+  --sidebar-accent: oklch(38% 0.08 158);
+  --sidebar-border: oklch(40% 0.06 160);
+  --sidebar-muted: oklch(75% 0.04 155);
+}
+
+.dark {
+  --background: oklch(17% 0.015 165);
+  --foreground: oklch(95% 0.01 155);
+  --card: oklch(21% 0.02 165);
+  --card-foreground: oklch(95% 0.01 155);
+  --popover: oklch(23% 0.02 165);
+  --primary: oklch(68% 0.15 155);
+  --primary-foreground: oklch(15% 0.03 160);
+  --primary-deep: oklch(80% 0.1 155);
+  --secondary: oklch(27% 0.03 160);
+  --secondary-foreground: oklch(90% 0.04 155);
+  --muted: oklch(25% 0.015 165);
+  --muted-foreground: oklch(70% 0.02 160);
+  --accent: oklch(30% 0.05 158);
+  --accent-foreground: oklch(92% 0.05 155);
+  --destructive: oklch(66% 0.19 25);
+  --warning: oklch(78% 0.14 70);
+  --success: oklch(70% 0.15 150);
+}
+
+* {
+  border-color: var(--border);
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: "Golos Text", system-ui, sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.scrollbar {
+  scrollbar-width: thin;
+}
+
+.bar {
+  transition: width 0.3s;
+}
+
+.drop-active {
+  outline: 2px dashed var(--primary);
+  background: var(--accent);
+}
+
+@media print {
+  aside,
+  .topbar,
+  .no-print {
+    display: none !important;
+  }
+
+  .page-shell {
+    margin: 0 !important;
+  }
+
+  .card {
+    break-inside: avoid;
+  }
+}

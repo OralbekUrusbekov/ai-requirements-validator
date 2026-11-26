@@ -379,7 +379,26 @@ class MockProvider(LLMProvider):
         if user.startswith("ОПЕРАЦИЯ: CHECK"):
             raw = user.partition("ТРЕБОВАНИЯ:\n")[2].partition("\nПОЛНЫЙ ДОКУМЕНТ:")[0]
             requirements = json.loads(raw)
-            return {"checks": [{"requirement_id": item["report_id"], "verdicts": {key: "ok" for key in CRITERIA}, "findings": [], "rewrite": ""} for item in requirements]}
+            checks = []
+            for index, item in enumerate(requirements):
+                verdicts = {key: "ok" for key in CRITERIA}
+                findings = []
+                rewrite = ""
+                if index == 0:
+                    verdicts["complete"] = "violation"
+                    quote = item.get("quote", "")
+                    findings = [{
+                        "criterion": "complete", "severity": "major", "quote": quote,
+                        "location": item.get("section", "Раздел не определён"),
+                        "explanation": "В mock-режиме отмечена неполнота проверяемого условия.",
+                        "fix": "Добавить измеримые условия, границы и ожидаемый результат.",
+                    }]
+                    rewrite = f"Уточнить проверяемые условия для требования: {quote}"
+                checks.append({
+                    "requirement_id": item["report_id"], "verdicts": verdicts,
+                    "findings": findings, "rewrite": rewrite,
+                })
+            return {"checks": checks}
         if user.startswith("ОПЕРАЦИЯ: COVERAGE"):
             fragments = json.loads(user.partition("ФРАГМЕНТЫ:\n")[2])
             return {

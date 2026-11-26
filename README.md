@@ -101,6 +101,54 @@ python -m webapp
 | `POST /api/demo?with_context=true` | Демо с sample context |
 | `GET /api/config` | Provider/model и boolean наличия ключа |
 
+## Платформа (веб)
+
+Новый Jira-подобный интерфейс хранит несколько проектов, версии документов, контекст, прогоны и жизненный цикл дефектов. Собранный React SPA обслуживается FastAPI на том же адресе; прежний vanilla-интерфейс остаётся доступен по `/legacy`.
+
+Основные экраны:
+
+- все проекты и создание проекта;
+- обзор с KPI, распределениями и динамикой прогонов;
+- версии документов, очередь проверок, живой прогресс и сравнение;
+- полный отчёт с восемью вкладками и экспортами;
+- доска/список дефектов, фильтры, bulk-действия, комментарии и история;
+- реестр требований, трассируемость, контекст и тест-кейсы;
+- настройки критериев, модели и участников.
+
+```text
+React SPA  <──JSON/multipart──>  FastAPI  <──>  SQLite + data/projects/
+                                      |
+                                      └──> validator.pipeline ──> LLM/cache
+```
+
+Запуск production-сборки:
+
+```bash
+cd frontend
+npm install
+npm run typecheck
+npm run build
+cd ..
+python -m webapp
+```
+
+Откройте <http://127.0.0.1:8000>. Для разработки запустите backend и `npm run dev` в разных терминалах (`make dev` печатает команды). Vite проксирует `/api` на порт 8000. `VITE_USE_MOCK=true npm run dev` включает браузерные fixtures без backend. База по умолчанию — `data/app.db`, путь переопределяется через `APP_DB`.
+
+Офлайн-демо с mock-прогонами:
+
+```bash
+LLM_PROVIDER=mock python -m webapp.seed_demo
+```
+
+| Группа API | Возможности |
+|---|---|
+| `/api/projects` | CRUD, избранное, dashboard, настройки и участники |
+| `/api/projects/{key}/documents`, `/context` | Версии каталога и контекстные файлы |
+| `/api/projects/{key}/runs`, `/api/runs/{id}` | Очередь, прогресс, отчёты и сравнение |
+| `/api/projects/{key}/defects`, `/api/defects/{key}` | Фильтры, workflow, bulk, комментарии и история |
+| `/requirements`, `/traceability`, `/testcases` | Реестр, матрица и CSV тест-кейсов |
+| `/api/search`, `/api/config` | Глобальный поиск и безопасная конфигурация |
+
 ## Квоты, кэш и fallback
 
 Модель по умолчанию — `gemini-3-flash-preview`; альтернатива — `gemini-2.5-flash`. Free tier может давать около 20 запросов/сутки на модель/project. Формула логических вызовов:

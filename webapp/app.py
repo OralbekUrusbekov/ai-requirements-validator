@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 import shutil
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from validator.config import load_config
+from .db import Repository
 from .manager import RunManager
+from .platform import PlatformService, create_router
 
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -20,8 +23,16 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 def create_app(runs_dir: Path | None = None) -> FastAPI:
     application = FastAPI(title="Агент проверки требований", version="0.1.0")
     manager = RunManager(runs_dir or PROJECT_ROOT / "runs", PROJECT_ROOT)
+    db_path = Path(os.environ["APP_DB"]) if os.getenv("APP_DB") else (
+        runs_dir.parent / "app.db" if runs_dir is not None else PROJECT_ROOT / "data" / "app.db"
+    )
+    repository = Repository(db_path, PROJECT_ROOT)
+    platform = PlatformService(repository)
     application.state.run_manager = manager
+    application.state.repository = repository
+    application.state.platform = platform
     application.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    application.include_router(create_router(platform))
 
     def not_found() -> HTTPException:
         return HTTPException(status_code=404, detail="Запуск не найден")
@@ -34,10 +45,16 @@ def create_app(runs_dir: Path | None = None) -> FastAPI:
             else bool(settings.openai_api_key or settings.openai_base_url) if settings.provider == "openai"
             else True
         )
-        return {
+        result = {
             "provider": settings.provider, "model": settings.model,
             "batch_size": settings.check_batch_size, "api_key_configured": configured,
         }
+        if runs_dir is None or os.getenv("APP_DB"):
+            result.update(
+                models=[settings.model, "gemini-3-flash-preview", "gemini-2.5-flash", "gpt-4o-mini"],
+                mode="live",
+            )
+        return result
 
     @application.post("/api/runs", status_code=202)
     async def create_run(
@@ -122,6 +139,10 @@ def create_app(runs_dir: Path | None = None) -> FastAPI:
 
     @application.get("/api/runs/{run_id}")
     def run_status(run_id: str) -> dict:
+        platform_run = repository.run(run_id)
+        if platform_run:
+            from .platform import serialize_run
+            return serialize_run(platform_run)
         try:
             return manager.get(run_id)
         except KeyError:
@@ -129,6 +150,11 @@ def create_app(runs_dir: Path | None = None) -> FastAPI:
 
     @application.get("/api/runs/{run_id}/report")
     def structured_report(run_id: str) -> dict:
+        if repository.run(run_id):
+            try:
+                return platform.run_payload(run_id)
+            except FileNotFoundError:
+                raise HTTPException(status_code=409, detail="Отчёт ещё не готов")
         try:
             return manager.report(run_id)
         except KeyError:
@@ -138,6 +164,12 @@ def create_app(runs_dir: Path | None = None) -> FastAPI:
 
     @application.get("/api/runs/{run_id}/report.md")
     def markdown_report(run_id: str) -> FileResponse:
+        platform_run = repository.run(run_id)
+        if platform_run:
+            path = Path(platform_run.get("report_dir") or "") / "report.md"
+            if not path.is_file():
+                raise HTTPException(status_code=409, detail="Отчёт ещё не готов")
+            return FileResponse(path, media_type="text/markdown; charset=utf-8", filename=f"report-{run_id}.md")
         try:
             path = manager.file(run_id, "report.md")
         except KeyError:
@@ -148,6 +180,12 @@ def create_app(runs_dir: Path | None = None) -> FastAPI:
 
     @application.get("/api/runs/{run_id}/report.json")
     def json_report(run_id: str) -> FileResponse:
+        platform_run = repository.run(run_id)
+        if platform_run:
+            path = Path(platform_run.get("report_dir") or "") / "report.json"
+            if not path.is_file():
+                raise HTTPException(status_code=409, detail="Отчёт ещё не готов")
+            return FileResponse(path, media_type="application/json", filename=f"report-{run_id}.json")
         try:
             path = manager.file(run_id, "report.json")
         except KeyError:
@@ -156,8 +194,26 @@ def create_app(runs_dir: Path | None = None) -> FastAPI:
             raise HTTPException(status_code=409, detail="Отчёт ещё не готов")
         return FileResponse(path, media_type="application/json", filename=f"report-{run_id}.json")
 
+    @application.get("/api/runs/{run_id}/report.html")
+    @application.get("/api/runs/{run_id}/report.docx")
+    def formatted_report(run_id: str, request: Request) -> FileResponse:
+        platform_run = repository.run(run_id)
+        if not platform_run:
+            raise not_found()
+        extension = Path(request.url.path).suffix
+        path = Path(platform_run.get("report_dir") or "") / f"report{extension}"
+        if not path.is_file():
+            raise HTTPException(status_code=409, detail="Файл ещё не готов")
+        return FileResponse(path, filename=f"report-{run_id}{extension}")
+
     @application.get("/api/runs/{run_id}/files/{name}")
     def report_file(run_id: str, name: str) -> FileResponse:
+        platform_run = repository.run(run_id)
+        if platform_run and name in {"report.md", "report.json", "report.html", "report.docx", "report.pdf"}:
+            path = Path(platform_run.get("report_dir") or "") / name
+            if not path.is_file():
+                raise HTTPException(status_code=409, detail="Файл ещё не готов")
+            return FileResponse(path, filename=f"{run_id}-{name}")
         try:
             path = manager.file(run_id, name)
         except KeyError:
@@ -179,9 +235,22 @@ def create_app(runs_dir: Path | None = None) -> FastAPI:
     def index() -> FileResponse:
         return FileResponse(STATIC_DIR / "index.html")
 
-    application.add_api_route("/", index, methods=["GET"], include_in_schema=False)
-    application.add_api_route("/history", index, methods=["GET"], include_in_schema=False)
-    application.add_api_route("/runs/{run_id}", index, methods=["GET"], include_in_schema=False)
+    application.add_api_route("/legacy", index, methods=["GET"], include_in_schema=False)
+
+    frontend_dist = PROJECT_ROOT / "frontend" / "dist"
+    if frontend_dist.is_dir():
+        assets = frontend_dist / "assets"
+        if assets.is_dir():
+            application.mount("/assets", StaticFiles(directory=assets), name="frontend-assets")
+
+        def spa() -> FileResponse:
+            return FileResponse(frontend_dist / "index.html")
+
+        application.add_api_route("/{path:path}", spa, methods=["GET"], include_in_schema=False)
+    else:
+        application.add_api_route("/", index, methods=["GET"], include_in_schema=False)
+        application.add_api_route("/history", index, methods=["GET"], include_in_schema=False)
+        application.add_api_route("/runs/{run_id}", index, methods=["GET"], include_in_schema=False)
     return application
 
 
