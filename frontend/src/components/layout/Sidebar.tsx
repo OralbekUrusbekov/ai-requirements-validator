@@ -1,9 +1,8 @@
 import { ChevronLeft, FolderKanban, Plus } from "lucide-react";
-import { Link, NavLink, useLocation } from "react-router-dom";
+import { Link, NavLink } from "react-router-dom";
 import type { Project } from "../../api/types";
 import { Button, Input, cx } from "../ui";
 import { projectNavigation } from "./navigation";
-import { useActiveSection } from "./sections";
 
 interface SidebarProps {
   activeProject?: string;
@@ -16,8 +15,6 @@ interface SidebarProps {
 }
 
 export function Sidebar(props: SidebarProps) {
-  const location = useLocation();
-  const activeSection = useActiveSection();
   const query = props.projectSearch.toLocaleLowerCase("ru");
   const projects = props.projects.filter(
     (project) =>
@@ -93,40 +90,24 @@ export function Sidebar(props: SidebarProps) {
 
               {active && !props.collapsed && (
                 <nav className="ml-7 border-l border-[var(--sidebar-border)] pl-2">
-                  {projectNavigation.map(({ path, section, label, icon: Icon }) => {
-                    const base = `/projects/${project.key}`;
-                    const itemClass = (isActive: boolean) =>
-                      cx(
-                        "flex items-center gap-2 rounded-lg px-3 py-2 text-sm",
-                        "text-[var(--sidebar-muted)] hover:bg-[var(--sidebar-accent)]",
-                        isActive && "bg-[var(--sidebar-accent)] text-[var(--gold)]",
-                      );
-                    if (section) {
-                      const onProjectPage = location.pathname.replace(/\/$/, "") === base;
-                      return (
-                        <Link
-                          key={section}
-                          to={`${base}#${section}`}
-                          onClick={props.onNavigate}
-                          className={itemClass(onProjectPage && activeSection === section)}
-                        >
-                          <Icon size={16} />
-                          {label}
-                        </Link>
-                      );
-                    }
-                    return (
-                      <NavLink
-                        key={path}
-                        to={`${base}/${path}`}
-                        onClick={props.onNavigate}
-                        className={({ isActive }) => itemClass(isActive)}
-                      >
-                        <Icon size={16} />
-                        {label}
-                      </NavLink>
-                    );
-                  })}
+                  {projectNavigation.map(({ path, label, icon: Icon }) => (
+                    <NavLink
+                      end={!path}
+                      key={path}
+                      to={`/projects/${project.key}${path ? `/${path}` : ""}`}
+                      onClick={props.onNavigate}
+                      className={({ isActive }) =>
+                        cx(
+                          "flex items-center gap-2 rounded-lg px-3 py-2 text-sm",
+                          "text-[var(--sidebar-muted)] hover:bg-[var(--sidebar-accent)]",
+                          isActive && "bg-[var(--sidebar-accent)] text-[var(--gold)]",
+                        )
+                      }
+                    >
+                      <Icon size={16} />
+                      {label}
+                    </NavLink>
+                  ))}
                 </nav>
               )}
             </div>

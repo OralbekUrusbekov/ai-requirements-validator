@@ -21,10 +21,7 @@ import { DefectSheet } from "../features/defects/DefectSheet";
 export function Defects() {
   const { key } = useParams();
   const [params, setParams] = useSearchParams();
-  // На единой странице проекта в URL есть и чужие параметры (например, new=true у прогонов).
-  const defectQuery = new URLSearchParams(params);
-  defectQuery.delete("new");
-  const defects = useDefects(key, defectQuery.toString());
+  const defects = useDefects(key, params.toString());
   const toast = useToast();
   const view = params.get("view") || "board";
   const [selected, setSelected] = useState<string[]>([]);
