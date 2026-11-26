@@ -1,1 +1,1 @@
-export { AppLayout as Layout, PageTitle } from "./layout/AppLayout";
+export { AppLayout as Layout, PageTitle, SectionHeaderProvider } from "./layout/AppLayout";

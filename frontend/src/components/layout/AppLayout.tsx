@@ -1,6 +1,6 @@
 import { routeLabels } from "../../lib/labels";
-import { useEffect, useState, type ReactNode } from "react";
-import { X } from "lucide-react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { X, type LucideIcon } from "lucide-react";
 import { Outlet, useLocation, useParams } from "react-router-dom";
 import { useConfig, useProjects } from "../../api/hooks";
 import { Button, cx } from "../ui";
@@ -56,12 +56,25 @@ export function AppLayout() {
           config={config.data}
           onMenu={() => setMobileOpen(true)}
         />
-        <main className="mx-auto min-w-0 max-w-[1500px] overflow-x-hidden p-4 md:p-7">
+        <main className="mx-auto min-w-0 max-w-[1500px] overflow-x-clip p-4 md:p-7">
           <Outlet />
         </main>
       </div>
     </div>
   );
+}
+
+const SectionHeaderContext = createContext<{ icon?: LucideIcon } | null>(null);
+
+/** Внутри единой страницы проекта PageTitle рисуется как компактный заголовок секции. */
+export function SectionHeaderProvider({
+  icon,
+  children,
+}: {
+  icon?: LucideIcon;
+  children: ReactNode;
+}) {
+  return <SectionHeaderContext.Provider value={{ icon }}>{children}</SectionHeaderContext.Provider>;
 }
 
 export function PageTitle({
@@ -74,6 +87,28 @@ export function PageTitle({
   actions?: ReactNode;
 }) {
   const location = useLocation();
+  const section = useContext(SectionHeaderContext);
+
+  if (section) {
+    const Icon = section.icon;
+    return (
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          {Icon && (
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-[var(--secondary)] text-[var(--primary)]">
+              <Icon size={20} />
+            </span>
+          )}
+          <div className="min-w-0">
+            <h2 className="text-xl font-bold tracking-tight">{title}</h2>
+            {subtitle && <p className="text-sm text-[var(--muted-foreground)]">{subtitle}</p>}
+          </div>
+        </div>
+        {actions}
+      </div>
+    );
+  }
+
   const path = location.pathname.split("/").filter(Boolean);
   return (
     <>
