@@ -4,7 +4,9 @@ WORKDIR /build
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY frontend/ ./
-RUN npm run build
+# Public URL prefix, e.g. /rr/ when served behind nginx at https://host/rr/
+ARG BASE_PATH=/
+RUN VITE_BASE_PATH=$BASE_PATH npm run build
 
 # --- Stage 2: Python runtime (agent + API) ---
 FROM python:3.11-slim

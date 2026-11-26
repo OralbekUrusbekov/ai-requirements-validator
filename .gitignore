@@ -57,3 +57,8 @@ eval/results.md
 frontend/node_modules/
 frontend/dist/
 /data/
+
+# Frontend build artefacts
+frontend/vite.config.js
+frontend/vite.config.d.ts
+*.tsbuildinfo

@@ -1,6 +1,9 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      args:
+        BASE_PATH: ${BASE_PATH:-/}
     container_name: requirements-review
     restart: unless-stopped
     # Run as the host user so bind-mounted data/, runs/ and .cache/ stay writable.

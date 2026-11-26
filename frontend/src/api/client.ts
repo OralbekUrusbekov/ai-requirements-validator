@@ -2,6 +2,11 @@ import { mockResponse } from "./mock";
 
 export const mockMode = import.meta.env.VITE_USE_MOCK === "true";
 
+/** Absolute URL of an API path, respecting the app base path (e.g. "/rr/"). */
+export function apiUrl(path: string): string {
+  return `${import.meta.env.BASE_URL}api${path}`;
+}
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (mockMode) return Promise.resolve(mockResponse<T>(path, init));
 
@@ -10,7 +15,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(`/api${path}`, { ...init, headers });
+  const response = await fetch(apiUrl(path), { ...init, headers });
   if (!response.ok) {
     let detail = `HTTP ${response.status}`;
     try {

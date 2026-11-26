@@ -1,6 +1,7 @@
 import { Download, Printer } from "lucide-react";
 import { useState } from "react";
 import { useParams } from "react-router-dom";
+import { apiUrl } from "../api/client";
 import { useReport, useRun } from "../api/hooks";
 import type { Finding, TraceabilityRow } from "../api/types";
 import { PageTitle } from "../components/Layout";
@@ -140,7 +141,7 @@ export function ReportPage() {
         actions={
           <div className="flex flex-wrap gap-2 no-print">
             {["md", "html", "docx", "json"].map((extension) => (
-              <a key={extension} href={`/api/runs/${runId}/report.${extension}`}>
+              <a key={extension} href={apiUrl(`/runs/${runId}/report.${extension}`)}>
                 <Button className="bg-transparent text-[var(--foreground)]">
                   <Download size={16} />{extension.toUpperCase()}
                 </Button>
