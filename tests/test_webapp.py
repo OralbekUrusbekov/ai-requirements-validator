@@ -8,6 +8,7 @@ from webapp.app import create_app
 
 def make_client(tmp_path: Path, monkeypatch) -> TestClient:
     monkeypatch.setenv("LLM_PROVIDER", "mock")
+    monkeypatch.setenv("LLM_CACHE", "off")
     return TestClient(create_app(tmp_path / "runs"))
 
 
@@ -66,3 +67,24 @@ def test_config_never_exposes_api_key(tmp_path: Path, monkeypatch) -> None:
         "api_key_configured": True,
     }
     assert secret not in response.text
+
+
+def test_upload_with_context_tests_and_html(tmp_path: Path, monkeypatch) -> None:
+    with make_client(tmp_path, monkeypatch) as client:
+        response = client.post(
+            "/api/runs",
+            files=[
+                ("file", ("requirements.md", "# Каталог\n- Система сохраняет настройку пользователя.\n", "text/markdown")),
+                ("context", ("passport.md", "# Паспорт\nЦель проекта — хранить настройку пользователя.\n", "text/markdown")),
+            ],
+            data={"provider": "mock", "generate_tests": "true", "report_format": "html"},
+        )
+        assert response.status_code == 202
+        run_id = response.json()["run_id"]
+        status = wait_for_run(client, run_id)
+        assert status["status"] == "done", status.get("error")
+        assert status["context_used"] is True
+        report = client.get(f"/api/runs/{run_id}/report").json()
+        assert report["context"]["used"] is True
+        assert report["test_cases"]
+        assert client.get(f"/api/runs/{run_id}/files/report.html").status_code == 200

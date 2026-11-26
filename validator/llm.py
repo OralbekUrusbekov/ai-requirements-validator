@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import replace
 from datetime import datetime
 import json
 import os
@@ -12,6 +13,7 @@ import time
 from typing import Any, Callable
 
 from .config import Settings
+from .cache import LLMCache
 from .models import CRITERIA
 
 
@@ -140,17 +142,24 @@ def _max_retry_delay() -> float:
 
 
 def _sanitize_error(error: Exception, secrets: tuple[str, ...]) -> str:
-    summary = " ".join(str(error).split())
+    summary = mask_secrets(" ".join(str(error).split()), secrets)
+    return (summary or type(error).__name__)[:200]
+
+
+def mask_secrets(message: str, secrets: tuple[str, ...] = ()) -> str:
+    summary = message
     for secret in secrets:
         if secret:
             summary = summary.replace(secret, "[секрет скрыт]")
     summary = re.sub(r"AIza[0-9A-Za-z_-]+", "[секрет скрыт]", summary)
+    summary = re.sub(r"AQ\.[A-Za-z0-9_-]{20,}", "[секрет скрыт]", summary)
+    summary = re.sub(r"sk-[0-9A-Za-z_-]+", "[секрет скрыт]", summary)
     summary = re.sub(
         r"(?i)(api[_-]?key|authorization|bearer)(\s*[:=]\s*|\s+)[^\s,;}]+",
         r"\1\2[секрет скрыт]",
         summary,
     )
-    return (summary or type(error).__name__)[:200]
+    return summary
 
 
 def _http_status(error: Exception) -> str:
@@ -370,7 +379,7 @@ class MockProvider(LLMProvider):
         if user.startswith("ОПЕРАЦИЯ: CHECK"):
             raw = user.partition("ТРЕБОВАНИЯ:\n")[2].partition("\nПОЛНЫЙ ДОКУМЕНТ:")[0]
             requirements = json.loads(raw)
-            return {"checks": [{"requirement_id": item["report_id"], "verdicts": {key: "ok" for key in CRITERIA}, "findings": []} for item in requirements]}
+            return {"checks": [{"requirement_id": item["report_id"], "verdicts": {key: "ok" for key in CRITERIA}, "findings": [], "rewrite": ""} for item in requirements]}
         if user.startswith("ОПЕРАЦИЯ: COVERAGE"):
             fragments = json.loads(user.partition("ФРАГМЕНТЫ:\n")[2])
             return {
@@ -386,7 +395,34 @@ class MockProvider(LLMProvider):
                     for item in fragments if len(item.get("text", "").strip()) < 15
                 ],
             }
-        return {"verdicts": {key: "ok" for key in ("complete", "consistent", "feasible", "comprehensible", "able_to_be_validated", "ranked_importance_stability", "modifiable", "traceable")}, "findings": [], "missing_sections": [], "traceability": "Явных дефектов в mock-режиме не сформировано."}
+        if user.startswith("ОПЕРАЦИЯ: CONTEXT_EXTRACT"):
+            documents = json.loads(user.partition("ДОКУМЕНТЫ:\n")[2])
+            items = []
+            for document in documents:
+                quote = next((line.strip() for line in document.get("text", "").splitlines() if len(line.strip()) > 10), "")
+                if quote:
+                    items.append({"text": quote[:160], "quote": quote[:200], "source_file": document["source_file"]})
+            return {key: (items if key == "goals" else []) for key in ("goals", "scope_in", "scope_out", "constraints", "glossary", "systems", "policies")}
+        if user.startswith("ОПЕРАЦИЯ: CONTEXT_CHECK"):
+            data = json.loads(user.partition("ДАННЫЕ:\n")[2])
+            goals = data.get("context", {}).get("goals", [])
+            requirements = data.get("requirements", [])
+            return {"findings": [], "traceability_matrix": [
+                {"goal": goal.get("text", ""), "goal_quote": goal.get("quote", ""),
+                 "requirement_ids": [item["report_id"] for item in requirements[:1]],
+                 "acceptance_ids": [], "api_ids": [], "status": "partial"}
+                for goal in goals
+            ]}
+        if user.startswith("ОПЕРАЦИЯ: TEST_CASES"):
+            requirements = json.loads(user.partition("ТРЕБОВАНИЯ:\n")[2])
+            return {"test_cases": [
+                {"id": f"TC-{index:02d}", "requirement_ids": [item["report_id"]],
+                 "preconditions": ["Система доступна"], "steps": ["Выполнить действие"],
+                 "expected_result": item.get("short_text", "Ожидаемый результат достигнут"),
+                 "boundary_values": []}
+                for index, item in enumerate(requirements[:3], 1)
+            ]}
+        return {"verdicts": {key: "ok" for key in ("complete", "consistent", "feasible", "comprehensible", "able_to_be_validated", "ranked_importance_stability", "modifiable", "traceable")}, "findings": [], "missing_sections": [], "traceability": "Явных дефектов в mock-режиме не сформировано.", "traceability_matrix": []}
 
     @staticmethod
     def _segment(text: str) -> dict[str, Any]:
@@ -413,5 +449,91 @@ class MockProvider(LLMProvider):
         return {"requirements": items}
 
 
-def create_provider(settings: Settings, verbose: bool = False) -> LLMProvider:
-    return {"gemini": GeminiProvider, "openai": OpenAIProvider, "mock": MockProvider}[settings.provider](settings, verbose)
+class ProviderRouter(LLMProvider):
+    def __init__(self, providers: list[LLMProvider], cache: LLMCache):
+        if not providers:
+            raise ValueError("Не удалось настроить ни одного LLM-провайдера")
+        self.providers = providers
+        self.cache = cache
+        self.current = 0
+        self.name = providers[0].name
+        self.model = providers[0].model
+        self.calls = 0
+        self.cache_hits = 0
+        self.requests = 0
+        self.models_by_step: dict[str, list[str]] = {}
+
+    @staticmethod
+    def _fallback_error(error: Exception) -> bool:
+        message = str(error).lower()
+        status = getattr(error, "status_code", None) or getattr(error, "code", None)
+        return (
+            "исчерпана квота" in message
+            or (isinstance(status, int) and status >= 500)
+            or bool(re.search(r"\b5\d\d\b", message))
+        )
+
+    def generate_json(
+        self, system: str, user: str, schema: JSONSchema | None = None, operation: str = "llm"
+    ) -> dict[str, Any]:
+        self.requests += 1
+        last_error: Exception | None = None
+        for index in range(self.current, len(self.providers)):
+            provider = self.providers[index]
+            key = self.cache.key(provider.name, provider.model, system, user, schema)
+            cached = self.cache.get(key)
+            if cached is not None:
+                self.cache_hits += 1
+                self.current = index
+                self.name, self.model = provider.name, provider.model
+                self.models_by_step.setdefault(operation, []).append(f"{provider.name}:{provider.model} (кэш)")
+                return cached
+            try:
+                self.calls += 1
+                result = provider.generate_json(system, user, schema=schema, operation=operation)
+                self.cache.put(key, result)
+                self.current = index
+                self.name, self.model = provider.name, provider.model
+                self.models_by_step.setdefault(operation, []).append(f"{provider.name}:{provider.model}")
+                return result
+            except Exception as error:
+                last_error = error
+                if not self._fallback_error(error) or index + 1 >= len(self.providers):
+                    raise
+                next_provider = self.providers[index + 1]
+                print(
+                    f"[validator] fallback: {provider.name}:{provider.model} → "
+                    f"{next_provider.name}:{next_provider.model}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                self.current = index + 1
+        if last_error:
+            raise last_error
+        raise RuntimeError("LLM-провайдеры недоступны")
+
+
+def _raw_provider(settings: Settings, verbose: bool) -> LLMProvider:
+    provider_class = {"gemini": GeminiProvider, "openai": OpenAIProvider, "mock": MockProvider}[
+        settings.provider
+    ]
+    return provider_class(settings, verbose)
+
+
+def create_provider(settings: Settings, verbose: bool = False) -> ProviderRouter:
+    providers = [_raw_provider(settings, verbose)]
+    for item in settings.llm_fallback.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        provider_name, separator, model = item.partition(":")
+        if not separator or provider_name not in {"gemini", "openai", "mock"} or not model:
+            raise ValueError("LLM_FALLBACK: ожидается список provider:model")
+        if provider_name == settings.provider and model == settings.model:
+            continue
+        fallback_settings = replace(settings, provider=provider_name, model=model)
+        try:
+            providers.append(_raw_provider(fallback_settings, verbose))
+        except ValueError as error:
+            print(f"[validator] fallback пропущен: {mask_secrets(str(error))}", file=sys.stderr)
+    return ProviderRouter(providers, LLMCache(enabled=settings.cache_enabled))

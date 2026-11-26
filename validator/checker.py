@@ -34,7 +34,8 @@ def check_requirements(
             supplied = raw.get("verdicts", {}) if isinstance(raw.get("verdicts", {}), dict) else {}
             verdicts = {criterion: supplied.get(criterion, "n.a.") for criterion in CRITERIA}
             findings = [Finding.from_dict(item, requirement.report_id) for item in raw.get("findings", []) if isinstance(item, dict)]
-            result.append(RequirementCheck(requirement.report_id, verdicts, findings))
+            rewrite = str(raw.get("rewrite", "")).strip() if findings else ""
+            result.append(RequirementCheck(requirement.report_id, verdicts, findings, rewrite))
         if progress_callback:
             progress_callback(batch_index, total_batches)
     return result

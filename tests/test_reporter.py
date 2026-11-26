@@ -18,4 +18,4 @@ def test_report_contains_six_required_sections(tmp_path: Path) -> None:
 
     for number, title in enumerate(("Паспорт прогона", "Как агент нарезал требования", "Проверка каждого требования", "Проверка всего набора требований", "Сводка", "Итог"), 1):
         assert f"## {number}. {title}" in report
-    assert "ID в отчёте | ID в документе | Раздел | Краткая формулировка | Цитата" in report
+    assert "ID в отчёте | ID в документе | Раздел | Строка | Краткая формулировка | Цитата" in report

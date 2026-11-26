@@ -1,115 +1,170 @@
 # ИИ-агент проверки требований
 
-CLI-агент читает готовый документ требований, выделяет атомарные требования и статически проверяет их формулировки и весь набор по ISO/IEC/IEEE 29148:2018 (§5.2.5–5.2.6) и IEEE 830-1998 (§4.3). Результат — подробный отчёт на русском языке в Markdown и его JSON-копия. Исходное задание хакатона сохранено без изменений в [docs/TASK.md](docs/TASK.md).
+Агент выделяет атомарные требования, проверяет каждое и весь каталог по ISO/IEC/IEEE 29148:2018 (§5.2.5–5.2.6) и IEEE 830-1998 (§4.3), сопоставляет их с контекстом проекта и выпускает доказательный отчёт на русском. Исходное ТЗ сохранено без изменений в [docs/TASK.md](docs/TASK.md).
+
+## Быстрый старт
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python main.py docs/requirements.md runs/demo/report.md --provider mock
+```
+
+Для Gemini получите ключ на [aistudio.google.com](https://aistudio.google.com/), скопируйте `.env.example` в `.env` и заполните `GEMINI_API_KEY`. Реальные ключи не должны попадать в Git.
+
+## Что проверяется
+
+| Уровень | Критерии | Что ищет агент |
+|---|---|---|
+| Требование, ISO 29148 | necessary, appropriate, unambiguous, complete, singular, feasible, verifiable, correct, conforming | лишние/составные нормы, неоднозначность, пропуски условий, границ и негативных путей, непроверяемые числа и сроки |
+| Набор, ISO 29148 | complete, consistent, feasible, comprehensible, able to be validated | противоречия правил и примеров, пробелы, несовместимые типы, единицы и статусы |
+| SRS, IEEE 830 | correct, unambiguous, complete, consistent, ranked, verifiable, modifiable, traceable | корректность, приоритет/стабильность, модифицируемость и трассируемость |
+| Контекст проекта | цели, scope, ограничения, глоссарий, системы, политики | «правильный продукт»: непокрытые цели, лишние требования, конфликты SLA, scope и политик |
+
+Цитаты верифицируются кодом, а место дефекта вычисляется как «раздел, строка N». PDF- и DOCX-таблицы сохраняются для сегментации.
+
+## Архитектура
 
 ```text
-Документ (.md/.txt/.pdf/.docx)
-              |
-              v
-  loader -> segmenter -> checker (настраиваемые пакеты)
-                           |
-                           v
-              set_checker -> verifier
-                              |
-                              v
-                    report.md + report.json
+input + context -> loader -> segmenter -> deterministic coverage
+                                      -> cached provider + fallback
+               -> checker (batches) -> set consistency/completeness
+               -> context check / optional tests / diff
+               -> verifier + dedupe -> MD + JSON + HTML/DOCX[/PDF]
+                                      -> CLI / FastAPI web UI
 ```
 
-## Установка
+## CLI
 
-Требуется Python 3.10 или новее.
+Базовая команда неизменна:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+python main.py INPUT OUTPUT
 ```
 
-## Ключ Gemini
+Расширение `OUTPUT` выбирает `.md`, `.html`, `.docx` или `.json`; JSON всегда сохраняется рядом.
 
-1. Откройте [Google AI Studio](https://aistudio.google.com/) и создайте API key.
-2. Скопируйте `.env.example` в `.env`.
-3. Впишите ключ в `GEMINI_API_KEY`. Файл `.env` не добавляйте в Git.
+| Флаг | Назначение |
+|---|---|
+| `--provider {gemini,openai,mock}` | Провайдер |
+| `--model NAME` | Модель |
+| `--batch-size N` | Требований на check-вызов (12) |
+| `--context PATH [PATH ...]` | Файлы/каталоги контекста |
+| `--domain-check` / `--no-domain-check` | Доменная проверка внутри completeness |
+| `--tests` | Черновики тест-кейсов, +1 вызов |
+| `--previous report.json` | Diff без LLM |
+| `--pdf` | Дополнительный PDF при наличии PyMuPDF |
+| `--no-cache` | Отключить LLM-кэш |
+| `--verbose` | Прогресс и raw-ответы в `runs/debug/` |
 
-По умолчанию используется провайдер `gemini` и модель `gemini-3-flash-preview`. В качестве альтернативы можно указать `gemini-2.5-flash`. Провайдер, модель и размер пакета меняются переменными окружения или флагами CLI.
+OpenAI-совместимые Ollama/vLLM настраиваются через `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_MODEL`.
 
-## Запуск
+## Контекст проекта
+
+Поддерживаются MD, TXT, PDF и DOCX. Рекомендуемые части: цели и KPI, scope in/out, ограничения/SLA/сроки, глоссарий, каталог систем и политики.
+
+```markdown
+# Паспорт проекта
+## Цели
+- Сократить измеримое время операции.
+## Вне scope
+- Клиентское приложение не изменяется.
+## Ограничения
+- Внешний сервис имеет документированный SLA.
+```
+
+Готовый пакет: `examples/context/`.
 
 ```bash
-python main.py docs/requirements.md reports/report.md
+python main.py docs/requirements.md runs/context/report.html --context examples/context --tests
 ```
 
-Дополнительные параметры:
-
-```bash
-python main.py INPUT OUTPUT --provider gemini --model gemini-3-flash-preview --batch-size 12 --verbose
-```
-
-Готовые файлы появятся по указанному пути (`reports/report.md`) и рядом с ним с тем же именем и расширением `.json`. Для полностью офлайн-проверки конвейера доступен `--provider mock`; это тестовый режим, а не содержательное LLM-ревью.
-
-OpenAI-совместимый сервер (включая Ollama/vLLM) настраивается через `LLM_PROVIDER=openai`, `OPENAI_BASE_URL`, `OPENAI_API_KEY` и `OPENAI_MODEL`.
+Контекстный дефект содержит две проверяемые цитаты — из каталога и из контекстного файла.
 
 ## Веб-интерфейс
 
-Веб-приложение использует тот же конвейер, что и CLI, сохраняет историю в `runs/` и выполняет проверки строго по одной, чтобы не превышать лимиты бесплатного API.
-
-Запуск встроенным способом:
-
 ```bash
 python -m webapp
+# либо: uvicorn webapp.app:app --host 127.0.0.1 --port 8000
 ```
 
-Или через Uvicorn:
+Откройте <http://127.0.0.1:8000>. Offline UI без build-step принимает основной и несколько контекстных файлов, ставит запуски в последовательную очередь, показывает прогресс, трассируемость, переписывания, тест-кейсы, diff и историю.
 
-```bash
-uvicorn webapp.app:app --host 127.0.0.1 --port 8000
-```
-
-После запуска откройте [http://127.0.0.1:8000](http://127.0.0.1:8000). Интерфейс поддерживает загрузку перетаскиванием, живой прогресс, историю, фильтрацию результатов, светлую и тёмную темы, печать и скачивание отчётов.
-
-| Метод и путь | Назначение |
+| Endpoint | Назначение |
 |---|---|
-| `POST /api/runs` | Загрузить PDF, DOCX, MD или TXT (до 10 МБ) и поставить проверку в очередь |
-| `GET /api/runs/{id}` | Получить состояние и прогресс запуска |
-| `GET /api/runs/{id}/report` | Получить структурированный отчёт |
-| `GET /api/runs/{id}/report.md` | Скачать Markdown |
-| `GET /api/runs/{id}/report.json` | Скачать JSON |
-| `GET /api/runs` | Получить историю запусков |
-| `DELETE /api/runs/{id}` | Удалить завершённый запуск |
-| `POST /api/demo` | Проверить встроенный `docs/requirements.md` |
-| `GET /api/config` | Узнать активные provider/model и наличие ключа без раскрытия секрета |
+| `POST /api/runs` | Документ до 10 МБ, контекст и параметры |
+| `GET /api/runs/{id}` | Статус и прогресс |
+| `GET /api/runs/{id}/report` | Структурированный отчёт |
+| `GET /api/runs/{id}/report.md`, `.json` | Обязательные файлы |
+| `GET /api/runs/{id}/files/{name}` | HTML/DOCX/PDF, если сформированы |
+| `GET /api/runs`, `DELETE /api/runs/{id}` | История / удаление |
+| `POST /api/demo?with_context=true` | Демо с sample context |
+| `GET /api/config` | Provider/model и boolean наличия ключа |
 
-## Квоты и лимиты
+## Квоты, кэш и fallback
 
-Бесплатный тариф Gemini может разрешать только 20 запросов в сутки на одну модель в одном Google Cloud project. Один прогон использует примерно:
+Модель по умолчанию — `gemini-3-flash-preview`; альтернатива — `gemini-2.5-flash`. Free tier может давать около 20 запросов/сутки на модель/project. Формула логических вызовов:
 
 ```text
-S + C + ceil(N / batch_size) + 2
+без контекста: S + C + ceil(N / batch_size) + 2 + T
+с контекстом:  S + C + ceil(N / batch_size) + 4 + T
 ```
 
-Здесь `N` — число выделенных требований, `S` — число запросов сегментации (от 1 до 3), `C` — один запрос доизвлечения при наличии непокрытых фрагментов или 0, а последние два запроса отдельно проверяют согласованность и полноту всего набора. Для `docs/requirements.md` используются два сегмента и один coverage-вызов, поэтому базовый расход равен `5 + ceil(N / batch_size)`: при 27 требованиях и пакете 12 это 8 запросов. Неполный batch-ответ может потребовать ещё один запрос только для пропущенных требований.
+`S` — 1–3 сегментации, `C` — 0/1 coverage-вызов, `N` — требований, `T` — 1 с `--tests`. Пропущенные batch ID дают один дополнительный вызов; retries/fallback увеличивают физические запросы.
 
-Размер пакета задаётся через `CHECK_BATCH_SIZE` (по умолчанию 12) или CLI-флаг `--batch-size`. Увеличение пакета экономит квоту, но повышает размер контекста и риск неполного ответа. При исчерпании суточной квоты попробуйте другую модель, другой ключ/project или повторите запуск позднее.
+`LLM_CACHE=on` хранит ответы по SHA-256 provider/model/prompts/schema в `.cache/llm/`, поэтому идентичный повтор требует 0 сетевых запросов. `--no-cache` отключает кэш. Резервные модели:
 
-Для длинных ответов Gemini используется `GEMINI_MAX_OUTPUT_TOKENS=65536`. В режиме `--verbose` сырые ответы модели сохраняются в игнорируемом Git каталоге `runs/debug/`; это помогает диагностировать обрезанный или невалидный JSON.
+```dotenv
+LLM_FALLBACK=gemini:gemini-2.5-flash,openai:gpt-4o-mini
+```
 
-## Тесты
+Fallback срабатывает на исчерпанной квоте и повторных 5xx. Агент не ждёт огромную server retry-delay; логи и web-ошибки маскируют ключи.
+
+## Evaluation harness
+
+Oracle-файлы никогда не подаются LLM:
 
 ```bash
-pytest -q
+python -m eval runs/demo/report.json eval/cases/requirements_card_alerts.yaml
+python -m eval runs/context/report.json eval/cases/context_conflicts.yaml
 ```
 
-Тесты используют mock-провайдер и не обращаются к сети.
+Команда печатает recall, precision proxy подтверждённых цитат, hits/misses и пишет `eval/results.md`.
 
-## Поддерживаемые форматы
+## Команды и тесты
 
-- Markdown (`.md`) и обычный текст (`.txt`);
-- PDF (`.pdf`, текстовый слой через PyMuPDF);
-- Word (`.docx`, включая таблицы).
+```bash
+make install
+make run
+make web
+make test
+make eval
+make demo-context
+```
 
-## Ограничения
+`python -m pytest -q` работает с mock без сети.
 
-- качество анализа зависит от выбранной LLM и полноты входного документа;
-- сканированные PDF без текстового слоя не распознаются (OCR не выполняется);
-- проверка статическая: агент не запускает систему и не подтверждает фактическую реализуемость;
-- нечёткая проверка цитат снижает риск выдуманных ссылок, но не заменяет ручное ревью отчёта.
+## Как это соответствует ТЗ
+
+| TASK.md | Где реализовано |
+|---|---|
+| §2 — код, README, отчёт | `validator/`, CLI/web, этот README, Markdown+JSON и дополнительные форматы |
+| §3 — этапы прогона | loader → segmenter → checker → set checker → verifier → reporter |
+| §4 — LLM | Gemini, OpenAI-compatible и mock; schema, repair/retry/cache/fallback |
+| §5 — критерии | общие русские prompts и verdict по каждому критерию |
+| §6 — отчёт | обязательные разделы 1–6; дополнительные 7–9 |
+| §7 — репозиторий | Python 3.10+, requirements, `.env.example`, точная команда `python main.py <in> <out>` |
+
+## Структура и ограничения
+
+```text
+main.py             CLI
+validator/          загрузка, prompts, providers, checks, cache, context, отчёты
+webapp/             FastAPI + vanilla UI
+eval/               oracle и matcher
+examples/context/   demo context pack
+tests/              offline tests
+docs/TASK.md        исходное ТЗ
+```
+
+OCR для сканов не выполняется. Статический анализ не подтверждает фактическую реализуемость. Доменные выводы без контекста помечаются как требующие эксперта. Переписывания и тест-кейсы требуют человеческого ревью.

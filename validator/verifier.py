@@ -39,10 +39,41 @@ def verify_findings(document: Document, findings: list[Finding]) -> list[Finding
         finding.quote_verified = bool(all_quotes) and all(quote_exists(item, document.text) for item in all_quotes)
         if not finding.quote_verified and "цитата не подтверждена" not in finding.explanation:
             finding.explanation += " [цитата не подтверждена]"
-        if finding.location == "Раздел не определён" and finding.quote:
+        if finding.quote:
             finding.location = document.location_for(finding.quote)
         key = (finding.criterion, normalize(finding.quote), normalize(finding.explanation), tuple(sorted(finding.requirement_ids)))
         if key not in seen:
             seen.add(key)
             unique.append(finding)
     return unique
+
+
+def findings_match(left: Finding, right: Finding) -> bool:
+    if left.criterion != right.criterion:
+        return False
+    left_quotes = [left.quote, *left.related_quotes]
+    right_quotes = [right.quote, *right.related_quotes]
+    return any(
+        quote_exists(first, second, threshold=0.82) or quote_exists(second, first, threshold=0.82)
+        for first in left_quotes for second in right_quotes if first and second
+    )
+
+
+def dedupe_findings(findings: list[Finding]) -> list[Finding]:
+    result: list[Finding] = []
+    for finding in findings:
+        duplicate = next((item for item in result if findings_match(item, finding)), None)
+        if duplicate is None:
+            result.append(finding)
+            continue
+        duplicate.requirement_ids = list(dict.fromkeys([
+            *duplicate.requirement_ids, *finding.requirement_ids
+        ]))
+        duplicate.related_quotes = list(dict.fromkeys([
+            *duplicate.related_quotes, finding.quote, *finding.related_quotes
+        ]))
+        if {"critical": 3, "major": 2, "minor": 1}.get(finding.severity, 0) > {
+            "critical": 3, "major": 2, "minor": 1
+        }.get(duplicate.severity, 0):
+            duplicate.severity = finding.severity
+    return result

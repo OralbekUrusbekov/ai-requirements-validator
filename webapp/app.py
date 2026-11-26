@@ -42,8 +42,12 @@ def create_app(runs_dir: Path | None = None) -> FastAPI:
     @application.post("/api/runs", status_code=202)
     async def create_run(
         file: UploadFile = File(...),
+        context: list[UploadFile] = File(default=[]),
         provider: str | None = Form(None),
         model: str | None = Form(None),
+        generate_tests: bool = Form(False),
+        domain_check: bool = Form(True),
+        report_format: str = Form("md"),
     ) -> dict:
         filename = Path(file.filename or "").name
         extension = Path(filename).suffix.lower()
@@ -51,8 +55,13 @@ def create_app(runs_dir: Path | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="Допустимы только PDF, DOCX, MD и TXT")
         if provider and provider not in {"gemini", "openai", "mock"}:
             raise HTTPException(status_code=400, detail="Неизвестный LLM-провайдер")
+        if report_format not in {"md", "html", "docx", "json"}:
+            raise HTTPException(status_code=400, detail="Неизвестный формат отчёта")
         try:
-            run_id, destination = manager.create(filename, extension, provider, model)
+            run_id, destination = manager.create(
+                filename, extension, provider, model, generate_tests=generate_tests,
+                domain_check=domain_check, report_format=report_format, context_used=bool(context),
+            )
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         size = 0
@@ -68,19 +77,42 @@ def create_app(runs_dir: Path | None = None) -> FastAPI:
             raise
         finally:
             await file.close()
+        if context:
+            context_dir = destination.parent / "context"
+            context_dir.mkdir()
+            for index, upload in enumerate(context):
+                context_name = Path(upload.filename or "").name
+                context_ext = Path(context_name).suffix.lower()
+                if context_ext not in ALLOWED_EXTENSIONS:
+                    shutil.rmtree(destination.parent, ignore_errors=True)
+                    raise HTTPException(status_code=400, detail="Контекст: неподдерживаемый формат")
+                data = await upload.read(MAX_UPLOAD_BYTES + 1)
+                await upload.close()
+                if len(data) > MAX_UPLOAD_BYTES:
+                    shutil.rmtree(destination.parent, ignore_errors=True)
+                    raise HTTPException(status_code=413, detail="Файл контекста превышает 10 МБ")
+                (context_dir / f"{index:02d}_{context_name}").write_bytes(data)
         manager.submit(run_id)
         return {"run_id": run_id}
 
     @application.post("/api/demo", status_code=202)
-    def demo(provider: str | None = None, model: str | None = None) -> dict:
+    def demo(
+        provider: str | None = None, model: str | None = None, with_context: bool = False,
+        generate_tests: bool = False, domain_check: bool = True,
+    ) -> dict:
         if provider and provider not in {"gemini", "openai", "mock"}:
             raise HTTPException(status_code=400, detail="Неизвестный LLM-провайдер")
         source = PROJECT_ROOT / "docs" / "requirements.md"
         try:
-            run_id, destination = manager.create(source.name, source.suffix, provider, model)
+            run_id, destination = manager.create(
+                source.name, source.suffix, provider, model, generate_tests=generate_tests,
+                domain_check=domain_check, context_used=with_context,
+            )
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         shutil.copyfile(source, destination)
+        if with_context:
+            shutil.copytree(PROJECT_ROOT / "examples" / "context", destination.parent / "context")
         manager.submit(run_id)
         return {"run_id": run_id}
 
@@ -123,6 +155,16 @@ def create_app(runs_dir: Path | None = None) -> FastAPI:
         except FileNotFoundError:
             raise HTTPException(status_code=409, detail="Отчёт ещё не готов")
         return FileResponse(path, media_type="application/json", filename=f"report-{run_id}.json")
+
+    @application.get("/api/runs/{run_id}/files/{name}")
+    def report_file(run_id: str, name: str) -> FileResponse:
+        try:
+            path = manager.file(run_id, name)
+        except KeyError:
+            raise not_found()
+        except FileNotFoundError:
+            raise HTTPException(status_code=409, detail="Файл ещё не готов")
+        return FileResponse(path, filename=f"{run_id}-{name}")
 
     @application.delete("/api/runs/{run_id}", status_code=204, response_class=Response)
     def delete_run(run_id: str) -> Response:

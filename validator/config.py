@@ -17,6 +17,8 @@ class Settings:
     gemini_thinking: bool = True
     openai_api_key: str | None = None
     openai_base_url: str | None = None
+    cache_enabled: bool = True
+    llm_fallback: str = ""
 
 
 def _batch_size(value: int | str | None) -> int:
@@ -52,7 +54,8 @@ def _bool_env(name: str, default: bool) -> bool:
 
 
 def load_config(
-    provider: str | None = None, model: str | None = None, batch_size: int | None = None
+    provider: str | None = None, model: str | None = None, batch_size: int | None = None,
+    cache_enabled: bool | None = None,
 ) -> Settings:
     load_dotenv()
     selected = (provider or os.getenv("LLM_PROVIDER", "gemini")).lower()
@@ -73,4 +76,6 @@ def load_config(
         gemini_thinking=_bool_env("GEMINI_THINKING", True),
         openai_api_key=os.getenv("OPENAI_API_KEY"),
         openai_base_url=os.getenv("OPENAI_BASE_URL"),
+        cache_enabled=_bool_env("LLM_CACHE", True) if cache_enabled is None else cache_enabled,
+        llm_fallback=os.getenv("LLM_FALLBACK", ""),
     )

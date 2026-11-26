@@ -18,6 +18,7 @@ class Requirement:
     short_text: str
     quote: str
     quote_verified: bool = True
+    line_number: int | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], index: int) -> "Requirement":
@@ -41,6 +42,8 @@ class Finding:
     requirement_ids: list[str] = field(default_factory=list)
     related_quotes: list[str] = field(default_factory=list)
     quote_verified: bool = True
+    confidence: str | None = None
+    expert_confirmation: bool = False
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], default_id: str | None = None) -> "Finding":
@@ -56,6 +59,8 @@ class Finding:
             location=str(data.get("location") or "Раздел не определён"),
             requirement_ids=[str(item) for item in ids if item],
             related_quotes=related,
+            confidence=str(data.get("confidence")) if data.get("confidence") else None,
+            expert_confirmation=bool(data.get("expert_confirmation", False)),
         )
 
 
@@ -64,6 +69,7 @@ class RequirementCheck:
     requirement_id: str
     verdicts: dict[str, str]
     findings: list[Finding]
+    rewrite: str = ""
 
 
 @dataclass
@@ -72,3 +78,4 @@ class SetCheck:
     findings: list[Finding]
     missing_sections: list[str] = field(default_factory=list)
     traceability: str = ""
+    traceability_matrix: list[dict[str, Any]] = field(default_factory=list)

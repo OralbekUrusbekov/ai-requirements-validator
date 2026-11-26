@@ -12,10 +12,14 @@ SET_CRITERIA = (
 )
 
 
-def check_set(document: Document, requirements: list[Requirement], provider: LLMProvider) -> SetCheck:
+def check_set(
+    document: Document, requirements: list[Requirement], provider: LLMProvider,
+    domain_check: bool = True,
+) -> SetCheck:
     responses = []
     for operation, prompt in (
-        ("set_consistency", consistency_prompt), ("set_completeness", completeness_prompt)
+        ("set_consistency", consistency_prompt),
+        ("set_completeness", lambda doc, reqs: completeness_prompt(doc, reqs, domain_check)),
     ):
         system, user = prompt(document, requirements)
         responses.append(
@@ -38,9 +42,20 @@ def check_set(document: Document, requirements: list[Requirement], provider: LLM
         str(response.get("traceability", "")).strip() for response in responses
         if str(response.get("traceability", "")).strip()
     )
+    matrix = []
+    seen_rows = set()
+    for response in responses:
+        for row in response.get("traceability_matrix", []):
+            if not isinstance(row, dict):
+                continue
+            key = (str(row.get("goal", "")), tuple(row.get("requirement_ids", [])))
+            if key not in seen_rows:
+                seen_rows.add(key)
+                matrix.append(row)
     return SetCheck(
         verdicts=verdicts,
         findings=findings,
         missing_sections=missing_sections,
         traceability=traceability,
+        traceability_matrix=matrix,
     )

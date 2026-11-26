@@ -52,3 +52,5 @@ Thumbs.db
 
 # Web application run artifacts
 runs/
+.cache/
+eval/results.md

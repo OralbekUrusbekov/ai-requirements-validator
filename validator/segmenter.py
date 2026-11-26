@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 import math
 import re
-from typing import Any, overload
+from typing import Any
 
 from .coverage import (
     COVERAGE_SCHEMA, SkippedUnit, coverage_prompt, extract_units, uncovered_units, unit_is_covered
@@ -128,6 +128,7 @@ def segment(
     warnings: list[str] = []
     for requirement in requirements:
         requirement.quote_verified = bool(requirement.quote and quote_exists(requirement.quote, document.text))
+        requirement.line_number = document.line_for(requirement.quote)
         if not requirement.quote_verified:
             warnings.append(f"{requirement.report_id}: цитата сегмента не найдена в источнике")
         if not requirement.section or requirement.section == "Раздел не определён":

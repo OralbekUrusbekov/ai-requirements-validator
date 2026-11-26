@@ -18,6 +18,8 @@ FINDING_SCHEMA = {
         "location": {"type": "string"},
         "requirement_ids": {"type": "array", "items": {"type": "string"}},
         "related_quotes": {"type": "array", "items": {"type": "string"}},
+        "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+        "expert_confirmation": {"type": "boolean"},
     },
     "required": ["criterion", "severity", "explanation", "fix", "quote", "location"],
 }
@@ -59,8 +61,9 @@ CHECK_SCHEMA = {
                         ],
                     },
                     "findings": {"type": "array", "items": FINDING_SCHEMA},
+                    "rewrite": {"type": "string"},
                 },
-                "required": ["requirement_id", "verdicts", "findings"],
+                "required": ["requirement_id", "verdicts", "findings", "rewrite"],
             },
         }
     },
@@ -83,8 +86,23 @@ SET_SCHEMA = {
         "findings": {"type": "array", "items": FINDING_SCHEMA},
         "missing_sections": {"type": "array", "items": {"type": "string"}},
         "traceability": {"type": "string"},
+        "traceability_matrix": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "goal": {"type": "string"},
+                    "goal_quote": {"type": "string"},
+                    "requirement_ids": {"type": "array", "items": {"type": "string"}},
+                    "acceptance_ids": {"type": "array", "items": {"type": "string"}},
+                    "api_ids": {"type": "array", "items": {"type": "string"}},
+                    "status": {"type": "string"},
+                },
+                "required": ["goal", "requirement_ids", "acceptance_ids", "api_ids", "status"],
+            },
+        },
     },
-    "required": ["verdicts", "findings", "missing_sections", "traceability"],
+    "required": ["verdicts", "findings", "missing_sections", "traceability", "traceability_matrix"],
 }
 
 
@@ -135,7 +153,10 @@ def check_prompt(document: Document, requirements: list[Requirement]) -> tuple[s
 6) есть ли объективный критерий приёмки, покрывающий именно это правило.
 findings содержит только реальные нарушения. Формат: {{"checks":[{{"requirement_id":"R-01",
 "verdicts":{{"necessary":"ok",...}},"findings":[{{"criterion":"complete","severity":"major",
-"quote":"дословно","location":"раздел","explanation":"почему","fix":"как исправить"}}]}}]}}.
+"quote":"дословно","location":"раздел","explanation":"почему","fix":"как исправить"}}],
+"rewrite":"улучшенная формулировка или пустая строка"}}]}}.
+Если есть хотя бы одно нарушение, rewrite должен содержать цельную улучшенную формулировку на русском;
+если нарушений нет — пустую строку. Не добавляй новые бизнес-правила, которых нет в документе.
 {STRICT_FINDINGS}"""
     payload = [vars(item) for item in requirements]
     user = "ОПЕРАЦИЯ: CHECK\nТРЕБОВАНИЯ:\n" + json.dumps(payload, ensure_ascii=False) + "\nПОЛНЫЙ ДОКУМЕНТ:\n" + document.text
@@ -157,13 +178,20 @@ def consistency_prompt(document: Document, requirements: list[Requirement]) -> t
 "modifiable":"...", "traceable":"..."}}, "findings":[{{"requirement_ids":["R-01","R-02"],
 "related_quotes":["цитата 1","цитата 2"],"quote":"основная точная цитата","location":"раздел",
 "criterion":"consistent","severity":"critical|major|minor","explanation":"...","fix":"..."}}],
-"missing_sections":["..."],"traceability":"краткая оценка"}}. {STRICT_FINDINGS}"""
+"missing_sections":["..."],"traceability":"краткая оценка","traceability_matrix":[]}}. {STRICT_FINDINGS}"""
     catalog = [vars(item) for item in requirements]
     user = "ОПЕРАЦИЯ: CONSISTENCY\nКАТАЛОГ:\n" + json.dumps(catalog, ensure_ascii=False) + "\nПОЛНЫЙ ДОКУМЕНТ:\n" + document.text
     return system, user
 
 
-def completeness_prompt(document: Document, requirements: list[Requirement]) -> tuple[str, str]:
+def completeness_prompt(
+    document: Document, requirements: list[Requirement], domain_check: bool = True
+) -> tuple[str, str]:
+    domain_instruction = """
+Дополнительно выполни осторожную доменную проверку рисков безопасности, регулирования, персональных данных,
+аудита и отката. Это не утверждение о нарушении закона: такие findings помечай expert_confirmation=true,
+текстом «требует подтверждения экспертом» и confidence low/medium/high.
+""" if domain_check else "Доменную проверку не выполняй."
     system = f"""Ты проверяешь ПОЛНОТУ и ТРАССИРУЕМОСТЬ спецификации как целого набора. {DEFINITIONS}
 Проверь по каждой группе требований: негативные пути, граничные значения, неопределённые термины,
 метод измерения каждого числа и времени, наличие критерия приёмки для каждого функционального правила.
@@ -171,12 +199,15 @@ def completeness_prompt(document: Document, requirements: list[Requirement]) -> 
 информационная безопасность и категории нефункциональных требований.
 Построй логическую трассировку «цели → функциональные требования → критерии приёмки → интерфейсные контракты»
 и укажи разрывы конкретными ID и цитатами. Не повторяй проверку арифметических противоречий.
+{domain_instruction}
 Верни {{"verdicts":{{"complete":"ok|violation", "consistent":"...", "feasible":"...",
 "comprehensible":"...", "able_to_be_validated":"...", "ranked_importance_stability":"...",
 "modifiable":"...", "traceable":"..."}}, "findings":[{{"requirement_ids":["R-01"],
 "related_quotes":["цитата"],"quote":"основная точная цитата","location":"раздел",
 "criterion":"complete","severity":"critical|major|minor","explanation":"...","fix":"..."}}],
-"missing_sections":["..."],"traceability":"краткая оценка"}}. {STRICT_FINDINGS}"""
+"missing_sections":["..."],"traceability":"краткая оценка","traceability_matrix":[{{"goal":"...",
+"goal_quote":"...","requirement_ids":["R-01"],"acceptance_ids":[],"api_ids":[],"status":"covered|partial|missing"}}]}}.
+{STRICT_FINDINGS}"""
     catalog = [vars(item) for item in requirements]
     user = "ОПЕРАЦИЯ: COMPLETENESS\nКАТАЛОГ:\n" + json.dumps(catalog, ensure_ascii=False) + "\nПОЛНЫЙ ДОКУМЕНТ:\n" + document.text
     return system, user

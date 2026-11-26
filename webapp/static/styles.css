@@ -89,6 +89,9 @@ h3 { margin: 0 0 .7rem; }
 .upload-icon { font-size: 2.2rem; }
 .file-name { color: var(--brand); font-weight: 650; min-height: 1.5rem; overflow-wrap: anywhere; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1.2rem 0; }
+.option-row { display: flex; flex-wrap: wrap; gap: 1rem; margin: 0 0 1.2rem; }
+.option-row label { display: flex; align-items: center; gap: .45rem; }
+.option-row input { width: 1.15rem; height: 1.15rem; }
 label span { display: block; color: var(--muted); font-size: .88rem; margin-bottom: .35rem; }
 input[type="text"], input[type="search"], select { width: 100%; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: .72rem .8rem; }
 .actions { display: flex; flex-wrap: wrap; gap: .8rem; align-items: center; }
@@ -161,6 +164,10 @@ blockquote { margin: .6rem 0; padding: .7rem 1rem; border-left: 3px solid var(--
 .decision.no { color: var(--danger); background: color-mix(in srgb, var(--danger) 13%, var(--surface)); }
 .muted { color: var(--muted); }
 .history-actions { display: flex; gap: .4rem; }
+.rewrite { margin-top: 1rem; padding: 1rem; border: 1px solid var(--border); border-radius: 10px; background: color-mix(in srgb, var(--brand) 5%, var(--surface)); }
+.trace-covered { color: var(--ok); background: color-mix(in srgb, var(--ok) 13%, var(--surface)); }
+.trace-partial { color: var(--warn); background: color-mix(in srgb, var(--warn) 13%, var(--surface)); }
+.trace-missing { color: var(--danger); background: color-mix(in srgb, var(--danger) 13%, var(--surface)); }
 
 @media (max-width: 700px) {
   .site-header { height: auto; min-height: 64px; flex-wrap: wrap; padding: .7rem 1rem; }

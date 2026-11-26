@@ -11,6 +11,7 @@ from typing import Any
 from uuid import uuid4
 
 from validator.config import load_config
+from validator.llm import mask_secrets
 from validator.pipeline import run_pipeline
 
 
@@ -21,10 +22,8 @@ def now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
-def safe_error(error: Exception) -> str:
-    message = " ".join(str(error).split())
-    message = re.sub(r"AIza[0-9A-Za-z_-]+", "[секрет скрыт]", message)
-    message = re.sub(r"sk-[0-9A-Za-z_-]+", "[секрет скрыт]", message)
+def safe_error(error: Exception, secrets: tuple[str, ...] = ()) -> str:
+    message = mask_secrets(" ".join(str(error).split()), secrets)
     if not message:
         message = type(error).__name__
     return f"Не удалось выполнить проверку: {message[:500]}"
@@ -73,7 +72,11 @@ class RunManager:
             except (OSError, ValueError):
                 continue
 
-    def create(self, original_name: str, extension: str, provider: str | None, model: str | None) -> tuple[str, Path]:
+    def create(
+        self, original_name: str, extension: str, provider: str | None, model: str | None,
+        *, generate_tests: bool = False, domain_check: bool = True,
+        report_format: str = "md", context_used: bool = False,
+    ) -> tuple[str, Path]:
         settings = load_config(provider, model)
         run_id = uuid4().hex
         directory = self.runs_dir / run_id
@@ -98,6 +101,10 @@ class RunManager:
             "finding_count": 0,
             "decision": None,
             "error": None,
+            "generate_tests": generate_tests,
+            "domain_check": domain_check,
+            "report_format": report_format,
+            "context_used": context_used,
         }
         self._write_json(directory / "meta.json", meta)
         return run_id, input_path
@@ -134,8 +141,14 @@ class RunManager:
                 )
 
             settings = load_config(meta["provider"], meta["model"], meta.get("batch_size"))
+            context_dir = directory / "context"
+            context_paths = [str(path) for path in sorted(context_dir.glob("*"))] if context_dir.is_dir() else None
+            report_format = meta.get("report_format", "md")
             result = run_pipeline(
-                str(source), str(directory / "report.md"), settings, progress_callback=progress
+                str(source), str(directory / f"report.{report_format}"), settings,
+                progress_callback=progress, context_paths=context_paths,
+                domain_check=meta.get("domain_check", True),
+                generate_tests=meta.get("generate_tests", False),
             )
             summary = result.payload["summary"]
             result.payload["metadata"].update(
@@ -153,12 +166,19 @@ class RunManager:
                 requirement_count=summary["requirement_count"],
                 finding_count=summary["finding_count"],
                 decision=summary["decision"],
+                context_used=bool(context_paths),
             )
         except Exception as error:
             try:
+                secrets: tuple[str, ...] = ()
+                try:
+                    configured = load_config()
+                    secrets = tuple(filter(None, (configured.gemini_api_key, configured.openai_api_key)))
+                except ValueError:
+                    pass
                 self._update(
                     run_id, status="error", current_label="Ошибка", finished_at=now_iso(),
-                    error=safe_error(error),
+                    error=safe_error(error, secrets),
                 )
             except (KeyError, OSError, ValueError):
                 pass
@@ -185,7 +205,7 @@ class RunManager:
         return self._read_json(path)
 
     def file(self, run_id: str, name: str) -> Path:
-        if name not in {"report.md", "report.json"}:
+        if name not in {"report.md", "report.json", "report.html", "report.docx", "report.pdf"}:
             raise KeyError(name)
         path = self._run_dir(run_id) / name
         if not path.is_file():
