@@ -15,7 +15,6 @@ export function TraceabilityView({ rows }: { rows: TraceabilityRow[] }) {
               "ТРЕБОВАНИЯ",
               "КРИТЕРИИ ПРИЁМКИ",
               "API",
-              "СТАТУС",
             ].map((label) => <th className="p-3" key={label}>{label}</th>)}
           </tr>
         </thead>
@@ -28,7 +27,6 @@ export function TraceabilityView({ rows }: { rows: TraceabilityRow[] }) {
                 <td className="mono p-3">{row.requirement_ids.join(", ") || "Не покрыто"}</td>
                 <td className="mono p-3">{row.acceptance_ids.join(", ") || "Не покрыто"}</td>
                 <td className="mono p-3">{row.api_ids.join(", ") || "Не покрыто"}</td>
-                <td className="p-3 font-semibold">{missing ? "Не покрыто" : "Покрыто"}</td>
               </tr>
             );
           })}

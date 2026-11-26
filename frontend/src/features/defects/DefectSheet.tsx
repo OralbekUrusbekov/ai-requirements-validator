@@ -71,7 +71,7 @@ export function DefectSheet(props: DefectSheetProps) {
               <dt className="text-[var(--muted-foreground)]">Тип</dt><dd>{defectTypeLabel(defect.type)}</dd>
               <dt className="text-[var(--muted-foreground)]">Требования</dt>
               <dd className="mono text-[var(--primary)]">{defect.requirement_ids.join(", ")}</dd>
-              <dt className="text-[var(--muted-foreground)]">Найден в</dt><dd>{defect.first_run_number ? `прогон #${defect.first_run_number}` : "—"}{defect.last_seen_run_number && defect.last_seen_run_number !== defect.first_run_number ? ` · последний раз #${defect.last_seen_run_number}` : ""}</dd>
+              <dt className="text-[var(--muted-foreground)]">Найден в</dt><dd>{defect.first_run_number ? `прогон #${defect.first_run_number}` : "—"}</dd>
             </dl>
             <section>
               <h3 className="font-bold">Цитаты</h3>

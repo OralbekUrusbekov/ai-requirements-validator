@@ -33,7 +33,6 @@ function Passport({ metadata, summary }: { metadata: Record<string, any>; summar
     ["Дата", metadata.run_at],
     ["Длительность", `${metadata.duration_seconds} с`],
     ["Вызовов LLM", metadata.llm_calls],
-    ["Попаданий в кэш", metadata.cache_hits ?? 0],
     ["Хэш файла", metadata.input_sha256],
   ];
   return (
