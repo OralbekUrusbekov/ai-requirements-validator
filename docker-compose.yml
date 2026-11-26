@@ -1,0 +1,12 @@
+services:
+  app:
+    build: .
+    container_name: requirements-review
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-8000}:8000"
+    volumes:
+      - ./data:/app/data
+      - ./runs:/app/runs
+      - ./.cache:/app/.cache

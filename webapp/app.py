@@ -31,6 +31,30 @@ def create_app(runs_dir: Path | None = None) -> FastAPI:
     application.state.run_manager = manager
     application.state.repository = repository
     application.state.platform = platform
+
+    basic_auth = os.getenv("APP_BASIC_AUTH", "")
+    if basic_auth:
+        import base64
+        import secrets
+
+        expected = "Basic " + base64.b64encode(basic_auth.encode()).decode()
+
+        @application.middleware("http")
+        async def require_basic_auth(request: Request, call_next):  # type: ignore[no-untyped-def]
+            if request.url.path == "/healthz":
+                return await call_next(request)
+            supplied = request.headers.get("authorization", "")
+            if not secrets.compare_digest(supplied.encode(), expected.encode()):
+                return Response(
+                    status_code=401,
+                    headers={"WWW-Authenticate": 'Basic realm="Requirements Review"'},
+                )
+            return await call_next(request)
+
+    @application.get("/healthz")
+    def healthz() -> dict:
+        return {"status": "ok"}
+
     application.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     application.include_router(create_router(platform))
 
