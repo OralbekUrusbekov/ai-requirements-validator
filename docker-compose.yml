@@ -3,6 +3,10 @@ services:
     build: .
     container_name: requirements-review
     restart: unless-stopped
+    # Run as the host user so bind-mounted data/, runs/ and .cache/ stay writable.
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
+    environment:
+      HOME: /tmp
     env_file: .env
     ports:
       - "${APP_BIND:-127.0.0.1}:${APP_PORT:-8000}:8000"
