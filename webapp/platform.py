@@ -394,6 +394,12 @@ def create_router(service: PlatformService) -> APIRouter:
 
     @router.get("/runs/compare")
     def compare_runs(a: str, b: str) -> dict[str, Any]:
+        for run_id in (a, b):
+            run = repo.run(run_id)
+            if not run:
+                raise HTTPException(404, "Прогон не найден")
+            if run["status"] != "done":
+                raise HTTPException(400, f"Прогон #{run['number']} не завершён — сравнивать можно только завершённые прогоны")
         first, second = service.run_payload(a), service.run_payload(b)
         first_keys = {item["key"]: item for item in repo.all("SELECT * FROM defects WHERE first_run_id=? OR last_seen_run_id=?", (a, a))}
         second_keys = {item["key"]: item for item in repo.all("SELECT * FROM defects WHERE first_run_id=? OR last_seen_run_id=?", (b, b))}
@@ -422,8 +428,9 @@ def create_router(service: PlatformService) -> APIRouter:
             clauses.append("location LIKE ?")
             values.append(f"%{section}%")
         if q:
-            clauses.append("(key LIKE ? OR title LIKE ? OR explanation LIKE ?)")
-            values.extend([f"%{q}%"] * 3)
+            # requirement_ids_json — чтобы ссылка «N →» из реестра требований (q=R-01) находила дефекты.
+            clauses.append("(key LIKE ? OR title LIKE ? OR explanation LIKE ? OR requirement_ids_json LIKE ?)")
+            values.extend([f"%{q}%"] * 3 + [f'%"{q}"%'])
         allowed_sort = {"updated_at", "created_at", "severity", "status", "number", "key"}
         sort_column, _, direction = sort.partition(":")
         if sort_column not in allowed_sort:

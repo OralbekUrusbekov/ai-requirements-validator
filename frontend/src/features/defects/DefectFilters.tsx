@@ -1,11 +1,12 @@
 import { criterionLabel, filterCriteria } from "../../lib/labels";
 import { Save, X } from "lucide-react";
-import type { Member, SavedFilter } from "../../api/types";
+import type { Member, Run, SavedFilter } from "../../api/types";
 import { Button, Card, Input, Select } from "../../components/ui";
 
 interface DefectFiltersProps {
   params: URLSearchParams;
   members: Member[];
+  runs: Run[];
   saved: SavedFilter[];
   onChange: (name: string, value: string) => void;
   onReset: () => void;
@@ -56,6 +57,10 @@ export function DefectFilters(props: DefectFiltersProps) {
         <Select value={props.params.get("assignee") ?? ""} onChange={(event) => props.onChange("assignee", event.target.value)}>
           <option value="">Исполнитель: все</option>
           {props.members.map((member) => <option key={member.name}>{member.name}</option>)}
+        </Select>
+        <Select value={props.params.get("run") ?? ""} onChange={(event) => props.onChange("run", event.target.value)} aria-label="Прогон">
+          <option value="">Прогон: все</option>
+          {props.runs.map((run) => <option key={run.id} value={run.id}>Прогон #{run.number}</option>)}
         </Select>
         <Input value={props.params.get("section") ?? ""} onChange={(event) => props.onChange("section", event.target.value)} placeholder="Раздел" />
       </div>

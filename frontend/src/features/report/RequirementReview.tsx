@@ -62,7 +62,12 @@ export function RequirementReview({ report, projectKey }: { report: Report; proj
                 <Button
                   className="mt-2 bg-transparent text-current"
                   onClick={() =>
-                    navigator.clipboard.writeText(check.rewrite).then(() => toast.push("Скопировано"))
+                    Promise.resolve()
+                      .then(() => navigator.clipboard.writeText(check.rewrite))
+                      .then(
+                        () => toast.push("Скопировано"),
+                        () => toast.push("Не удалось скопировать: браузер запретил доступ к буферу обмена", "error"),
+                      )
                   }
                 >
                   <Copy size={16} />Копировать

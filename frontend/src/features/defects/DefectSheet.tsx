@@ -1,6 +1,7 @@
 import { criterionLabel, defectTypeLabel } from "../../lib/labels";
 import { Send } from "lucide-react";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import type { Comment, Defect, DefectHistory, DefectStatus, Member } from "../../api/types";
 import { Badge, Button, Dialog, Select, Sheet, Textarea } from "../../components/ui";
 import { severityClass, statusLabels, statuses } from "./constants";
@@ -70,7 +71,17 @@ export function DefectSheet(props: DefectSheetProps) {
               <dt className="text-[var(--muted-foreground)]">Критерий</dt><dd>{criterionLabel(defect.criterion)}</dd>
               <dt className="text-[var(--muted-foreground)]">Тип</dt><dd>{defectTypeLabel(defect.type)}</dd>
               <dt className="text-[var(--muted-foreground)]">Требования</dt>
-              <dd className="mono text-[var(--primary)]">{defect.requirement_ids.join(", ")}</dd>
+              <dd className="mono flex flex-wrap gap-x-2">
+                {defect.requirement_ids.length ? defect.requirement_ids.map((id) => (
+                  <Link
+                    key={id}
+                    className="text-[var(--primary)] underline-offset-2 hover:underline"
+                    to={`/projects/${defect.project_key}/requirements#${id}`}
+                  >
+                    {id}
+                  </Link>
+                )) : "—"}
+              </dd>
               <dt className="text-[var(--muted-foreground)]">Найден в</dt><dd>{defect.first_run_number ? `прогон #${defect.first_run_number}` : "—"}</dd>
             </dl>
             <section>

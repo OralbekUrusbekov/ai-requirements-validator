@@ -51,7 +51,7 @@ export function GlobalSearch() {
       <Input
         value={query}
         onChange={(event) => setQuery(event.target.value)}
-        className="pl-10"
+        className="!pl-10"
         placeholder="Поиск: проекты, CARD-17, R-05…"
         aria-label="Глобальный поиск"
       />

@@ -2,7 +2,7 @@ import { LayoutGrid, List } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { api, jsonBody } from "../api/client";
-import { useDefects } from "../api/hooks";
+import { useDefects, useRuns } from "../api/hooks";
 import type {
   Comment,
   Defect,
@@ -21,9 +21,16 @@ import { DefectSheet } from "../features/defects/DefectSheet";
 export function Defects() {
   const { key } = useParams();
   const [params, setParams] = useSearchParams();
-  const defects = useDefects(key, params.toString());
-  const toast = useToast();
+  // В API уходят только фильтры, сортировка и страница — не открытый дефект и не вид.
+  const query = new URLSearchParams(params);
+  query.delete("d");
+  query.delete("view");
   const view = params.get("view") || "board";
+  if (view === "list" && !query.has("sort")) query.set("sort", "number:asc");
+  const defects = useDefects(key, query.toString());
+  const runs = useRuns(key);
+  const toast = useToast();
+  const page = Number(params.get("page") || 1);
   const [selected, setSelected] = useState<string[]>([]);
   const [detail, setDetail] = useState<Defect>();
   const [comments, setComments] = useState<Comment[]>([]);
@@ -42,27 +49,32 @@ export function Defects() {
     }).catch((error: Error) => toast.push(error.message, "error"));
   }, [key]);
 
+  async function loadDetail(defectKey: string) {
+    const [defect, commentData, historyData] = await Promise.all([
+      api<Defect>(`/defects/${defectKey}`),
+      api<Comment[]>(`/defects/${defectKey}/comments`),
+      api<DefectHistory[]>(`/defects/${defectKey}/history`),
+    ]);
+    setDetail(defect);
+    setComments(commentData);
+    setHistory(historyData);
+  }
+
   useEffect(() => {
     const defectKey = params.get("d");
     if (!defectKey) {
       setDetail(undefined);
       return;
     }
-    Promise.all([
-      api<Defect>(`/defects/${defectKey}`),
-      api<Comment[]>(`/defects/${defectKey}/comments`),
-      api<DefectHistory[]>(`/defects/${defectKey}/history`),
-    ]).then(([defect, commentData, historyData]) => {
-      setDetail(defect);
-      setComments(commentData);
-      setHistory(historyData);
-    }).catch((error: Error) => toast.push(error.message, "error"));
+    loadDetail(defectKey).catch((error: Error) => toast.push(error.message, "error"));
   }, [params.get("d")]);
 
   function setParam(name: string, value: string) {
     const next = new URLSearchParams(params);
     if (value) next.set(name, value);
     else next.delete(name);
+    // Любой новый фильтр или сортировка начинается с первой страницы.
+    if (!["d", "page", "view"].includes(name)) next.delete("page");
     setParams(next);
   }
 
@@ -77,35 +89,43 @@ export function Defects() {
   }
 
   async function patchDefect(defectKey: string, value: Partial<Defect>) {
-    await api(`/defects/${defectKey}`, { method: "PATCH", body: jsonBody(value) });
-    await defects.refetch();
-    if (detail?.key === defectKey) {
-      setDetail((current) => current ? { ...current, ...value } : current);
+    try {
+      await api(`/defects/${defectKey}`, { method: "PATCH", body: jsonBody(value) });
+      await defects.refetch();
+      // Перечитываем дефект целиком, чтобы обновилась и история изменений.
+      if (detail?.key === defectKey) await loadDetail(defectKey);
+      toast.push("Дефект обновлён");
+    } catch (error) {
+      toast.push((error as Error).message, "error");
     }
-    toast.push("Дефект обновлён");
   }
 
   async function bulk(value: { status?: string; assignee?: string }) {
-    await api("/defects/bulk", {
-      method: "POST",
-      body: jsonBody({ keys: selected, ...value }),
-    });
-    setSelected([]);
-    await defects.refetch();
-    toast.push("Массовое действие выполнено");
+    try {
+      await api("/defects/bulk", {
+        method: "POST",
+        body: jsonBody({ keys: selected, ...value }),
+      });
+      setSelected([]);
+      await defects.refetch();
+      toast.push("Массовое действие выполнено");
+    } catch (error) {
+      toast.push((error as Error).message, "error");
+    }
   }
 
   async function addComment(text: string) {
     if (!detail) return;
-    const created = await api<Comment>(`/defects/${detail.key}/comments`, {
-      method: "POST",
-      body: jsonBody({ author: "Текущий пользователь", text }),
-    });
-    setComments((current) => [...current, created?.id ? created : {
-      id: String(Date.now()), defect_key: detail.key, author: "Текущий пользователь",
-      text, created_at: new Date().toISOString(),
-    }]);
-    toast.push("Комментарий добавлен");
+    try {
+      await api<Comment>(`/defects/${detail.key}/comments`, {
+        method: "POST",
+        body: jsonBody({ author: "Текущий пользователь", text }),
+      });
+      await loadDetail(detail.key);
+      toast.push("Комментарий добавлен");
+    } catch (error) {
+      toast.push((error as Error).message, "error");
+    }
   }
 
   async function saveFilter() {
@@ -147,6 +167,7 @@ export function Defects() {
       <DefectFilters
         params={params}
         members={members}
+        runs={runs.data ?? []}
         saved={filters}
         onChange={setParam}
         onReset={() => setParams(view === "list" ? { view: "list" } : {})}
@@ -196,6 +217,8 @@ export function Defects() {
       {items.length > 0 && view === "list" && (
         <DefectList
           items={items}
+          sort={query.get("sort") ?? "number:asc"}
+          onSort={(value) => setParam("sort", value)}
           selected={selected}
           onSelect={selectDefect}
           onOpen={openDefect}
@@ -203,8 +226,16 @@ export function Defects() {
       )}
       {view === "list" && defects.data && defects.data.total > defects.data.page_size && (
         <div className="mt-4 flex justify-center gap-2">
-          <Button disabled={defects.data.page <= 1}>Назад</Button>
-          <span className="p-2">Страница {defects.data.page}</span><Button>Далее</Button>
+          <Button disabled={page <= 1} onClick={() => setParam("page", String(page - 1))}>Назад</Button>
+          <span className="p-2">
+            Страница {page} из {Math.ceil(defects.data.total / defects.data.page_size)}
+          </span>
+          <Button
+            disabled={page * defects.data.page_size >= defects.data.total}
+            onClick={() => setParam("page", String(page + 1))}
+          >
+            Далее
+          </Button>
         </div>
       )}
       <DefectSheet

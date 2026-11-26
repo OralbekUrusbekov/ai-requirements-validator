@@ -88,6 +88,8 @@ textarea {
 
 .scrollbar {
   scrollbar-width: thin;
+  /* Тонкий скроллбар в цветах темы: иначе в тёмной теме под вкладками отчёта видна белая полоса. */
+  scrollbar-color: var(--border) transparent;
 }
 
 .bar {

@@ -171,7 +171,7 @@ export function Tabs({
   onChange: (id: string) => void;
 }) {
   return (
-    <div role="tablist" className="flex gap-4 overflow-x-auto border-b">
+    <div role="tablist" className="scrollbar flex gap-4 overflow-x-auto border-b">
       {items.map((item) => (
         <button
           key={item.id}

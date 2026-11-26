@@ -60,7 +60,6 @@ function Summary({ summary }: { summary: Record<string, any> }) {
     unverifiable: "Непроверяемые",
     contradictory: "Противоречивые",
     incomplete: "Неполные",
-    other: "Прочие критические",
   };
   return (
     <>
@@ -83,7 +82,7 @@ function Summary({ summary }: { summary: Record<string, any> }) {
           ))}
         </div>
       </Card>
-      {Object.entries(summary.critical_groups ?? {}).map(([key, value]) => (
+      {Object.keys(groupLabels).map((key) => [key, summary.critical_groups?.[key] ?? []] as const).map(([key, value]) => (
         <Card className="mt-4" key={key}>
           <h3 className="font-bold">{groupLabels[key] ?? key}</h3>
           {(value as Finding[]).length ? (

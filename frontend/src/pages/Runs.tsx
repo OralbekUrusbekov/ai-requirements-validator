@@ -30,6 +30,14 @@ function statusBadge(run: Run) {
   return <Badge className={classes[run.status]}>{labels[run.status]}</Badge>;
 }
 
+/** Провайдер выбирается по модели: иначе gpt-4o-mini ушла бы в Gemini и прогон упал бы с ошибкой. */
+function providerForModel(model: string, fallback?: string) {
+  if (model.startsWith("gpt") || model.startsWith("o1") || model.startsWith("o3")) return "openai";
+  if (model.startsWith("gemini")) return "gemini";
+  if (model.startsWith("mock")) return "mock";
+  return fallback;
+}
+
 export function Runs() {
   const { key } = useParams();
   const [params, setParams] = useSearchParams();
@@ -41,9 +49,10 @@ export function Runs() {
   const [comparison, setComparison] = useState<RunComparison>();
   const panelOpen = params.get("new") === "true";
 
-  async function upload(file: File) {
+  async function upload(file: File, documentId?: string) {
     const body = new FormData();
     body.append("file", file);
+    if (documentId) body.append("document_id", documentId);
     try {
       await api(`/projects/${key}/documents`, { method: "POST", body });
       await documents.refetch();
@@ -54,20 +63,20 @@ export function Runs() {
   }
 
   async function start(values: NewRunValues) {
-    const fallback = documents.data?.flatMap((document) => document.versions)[0]?.id;
-    const version = values.document_version_id || fallback;
+    const version = values.document_version_id;
     if (!version) {
       toast.push("Сначала загрузите документ", "error");
       return;
     }
+    const model = values.model || config.data?.model || "";
     try {
       await api(`/projects/${key}/runs`, {
         method: "POST",
         body: jsonBody({
           ...values,
           document_version_id: version,
-          provider: values.provider || config.data?.provider,
-          model: values.model || config.data?.model,
+          provider: providerForModel(model, config.data?.provider),
+          model,
         }),
       });
       setParams({});
@@ -80,8 +89,11 @@ export function Runs() {
 
   async function compareRuns() {
     if (selected.length !== 2) return;
+    // Базой всегда служит более ранний прогон, иначе «исправлено» и «новое» поменяются местами.
+    const number = (id: string) => runs.data?.find((run) => run.id === id)?.number ?? 0;
+    const [older, newer] = [...selected].sort((a, b) => number(a) - number(b));
     try {
-      setComparison(await api<RunComparison>(`/runs/compare?a=${selected[0]}&b=${selected[1]}`));
+      setComparison(await api<RunComparison>(`/runs/compare?a=${older}&b=${newer}`));
     } catch (error) {
       toast.push((error as Error).message, "error");
     }
@@ -143,7 +155,7 @@ export function Runs() {
                 <td className="p-3">
                   <Checkbox
                     checked={selected.includes(run.id)}
-                    disabled={!selected.includes(run.id) && selected.length >= 2}
+                    disabled={run.status !== "done" || (!selected.includes(run.id) && selected.length >= 2)}
                     onChange={(event) => toggleRun(run.id, event.target.checked)}
                     aria-label={`Выбрать прогон ${run.number}`}
                   />

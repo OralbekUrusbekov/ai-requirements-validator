@@ -56,7 +56,7 @@ export function AppLayout() {
           config={config.data}
           onMenu={() => setMobileOpen(true)}
         />
-        <main className="mx-auto min-w-0 max-w-[1500px] overflow-x-hidden p-4 md:p-7">
+        <main className="mx-auto min-w-0 max-w-[1500px] overflow-x-clip p-4 md:p-7">
           <Outlet />
         </main>
       </div>
@@ -75,11 +75,13 @@ export function PageTitle({
 }) {
   const location = useLocation();
   const path = location.pathname.split("/").filter(Boolean);
+  const openDefect = path[2] === "defects" ? new URLSearchParams(location.search).get("d") : null;
   return (
     <>
       <div className="mb-2 text-sm text-[var(--muted-foreground)]">
         Проекты {path[1] ? `/ ${path[1]}` : ""} {path[2] ? `/ ${routeLabels[path[2]] ?? path[2]}` : ""}
         {path[3] ? ` / ${path[2] === "runs" ? "Отчёт" : path[3]}` : ""}
+        {openDefect ? ` / ${openDefect}` : ""}
       </div>
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>

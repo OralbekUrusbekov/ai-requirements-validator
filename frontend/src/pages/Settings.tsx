@@ -6,6 +6,7 @@ import type { Member } from "../api/types";
 import { PageTitle } from "../components/Layout";
 import { Button, Card, Checkbox, Dialog, Input, Select, useToast } from "../components/ui";
 import { MembersEditor } from "../features/settings/MembersEditor";
+import { criterionLabel } from "../lib/labels";
 
 const criterionLabels = [
   "necessary", "appropriate", "unambiguous", "complete", "singular", "feasible",
@@ -96,7 +97,7 @@ export function SettingsPage() {
                       : settings.criteria.filter((item) => item !== criterion),
                   })}
                 />
-                {criterion}
+                {criterionLabel(criterion)}
               </label>
             ))}
           </div>
